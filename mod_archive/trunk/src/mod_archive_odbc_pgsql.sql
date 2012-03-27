@@ -1,5 +1,3 @@
-DROP TABLE archive_collections;
-
 CREATE TABLE archive_collections(id SERIAL not null,
                                  prev_id INTEGER,
                                  next_id INTEGER,
@@ -11,7 +9,6 @@ CREATE TABLE archive_collections(id SERIAL not null,
                                  change_by VARCHAR(3071),
                                  change_utc timestamp,
                                  deleted INTEGER,
-                                 subject VARCHAR(1023),
                                  thread VARCHAR(1023),
                                  crypt INTEGER,
                                  extra VARCHAR(32767),
@@ -25,18 +22,17 @@ CREATE INDEX IDX_archive_colls_with_resource ON archive_collections(with_resourc
 CREATE INDEX IDX_archive_colls_utc ON archive_collections(utc);
 CREATE INDEX IDX_archive_colls_change_utc ON archive_collections(change_utc);
 
-DROP TABLE archive_messages;
 CREATE TABLE archive_messages(id SERIAL NOT NULL,
                               coll_id INTEGER NOT NULL,
                               utc timestamp NOT NULL,
                               dir INTEGER,
+                              subject VARCHAR(1023),
                               body VARCHAR(65535),
                               name VARCHAR(1023),
                               PRIMARY KEY(id));
 CREATE INDEX IDX_archive_msgs_coll_id ON archive_messages(coll_id);
 CREATE INDEX IDX_archive_msgs_utc ON archive_messages(utc);
 
-DROP TABLE archive_jid_prefs;
 CREATE TABLE archive_jid_prefs(us VARCHAR(2047) NOT NULL,
                                with_user VARCHAR(1023) NOT NULL,
                                with_server VARCHAR(1023) NOT NULL,
@@ -49,7 +45,6 @@ CREATE INDEX IDX_archive_jid_prefs_with_user ON archive_jid_prefs(with_user);
 CREATE INDEX IDX_archive_jid_prefs_with_server ON archive_jid_prefs(with_server);
 CREATE INDEX IDX_archive_jid_prefs_with_resource ON archive_jid_prefs(with_resource);
 
-DROP TABLE archive_global_prefs;
 CREATE TABLE archive_global_prefs(us VARCHAR(2047) NOT NULL,
                                   save integer,
                                   expire INTEGER,

@@ -134,7 +134,6 @@
          change_by,
          change_utc,
          deleted,
-         subject = "",
          prev = [],
          next = [],
          thread = "",
@@ -147,6 +146,7 @@
          utc,
          direction,
          body,
+         subject = "",
          name = ""}).
 
 %%====================================================================
@@ -426,7 +426,7 @@ add_log(Direction, LUser, LServer, LResource, JID, Packet) ->
             Proc = gen_mod:get_module_proc(LServer, ?PROCNAME),
             gen_server:cast(
               Proc, {addlog, Type, Direction, LUser, LServer, LResource, JID, Thread, Subject, Nick, Body});
-	_ ->
+	    _ ->
             ok
     end.
 
@@ -467,19 +467,18 @@ do_log(Sessions, LUser, LServer, LResource, JID, Type, Direction, Thread, Subjec
 		    find_storage(LUser, LServer, LowJID, Thread, Sessions,
 				 SessionDuration, Type),
                 LJID = jlib:jid_tolower(jlib:make_jid(LUser, LServer, LResource)),
-                update_collection_partial(CID, LServer, Thread, Subject, NewRes, LJID, TS),
+                update_collection_partial(CID, LServer, Thread, NewRes, LJID, TS),
                 M = #archive_message{coll_id = CID,
                                      utc = TS,
                                      direction = Direction,
                                      name =
                                          if Type == "groupchat" ->
-                                             if Nick /= "" ->
-					         Nick;
-                                                true ->
-                                                 Resource
+                                             if Nick /= "" -> Nick;
+                                                true -> Resource
                                                 end;
                                             true -> ""
                                          end,
+                                     subject = Subject,
                                      body = Body},
                 store_message(LServer, M),
                 NewSessions
@@ -940,10 +939,6 @@ parse_store_element(LUser, LServer,
                                     utc = Start,
                                     prev = get_link_as_list(SubEls, "previous"),
                                     next = get_link_as_list(SubEls, "next"),
-                                    subject = case xml:get_attr("subject", Attrs) of
-                                                  {value, Val} -> Val;
-                                                  false -> undefined
-                                              end,
                                     thread = case xml:get_attr("thread", Attrs) of
 						 {value, Val} -> Val;
 						 false -> undefined
@@ -1138,7 +1133,6 @@ process_remove_interval(LUser, LServer, LResource, Start, End, With) ->
 		case run_sql_query(
 		       ["update archive_collections "
 			"set deleted = 1, "
-			"subject = '', "
 			"thread = '', "
 			"extra = '', "
 			"prev_id = NULL, "
@@ -1299,7 +1293,6 @@ store_collection(C) ->
     SByJID = get_jid_full_escaped(C#archive_collection.change_by),
     CPrevID = get_collection_link_id(US, C#archive_collection.prev),
     CNextID = get_collection_link_id(US, C#archive_collection.next),
-    SSubject = escape_str(LServer, C#archive_collection.subject),
     SThread = escape_str(LServer, C#archive_collection.thread),
     SExtra = escape_str(LServer, C#archive_collection.extra),
     CollVals = ["with_resource = ", SResource, ", "
@@ -1308,7 +1301,6 @@ store_collection(C) ->
                 "change_utc = ", SCHUTC, ", "
                 "prev_id = ", escape(CPrevID), ", "
                 "next_id = ", escape(CNextID), ", "
-                "subject = ", SSubject, ", "
                 "thread = ", SThread, ", "
                 "extra = ", SExtra],
     run_sql_query(["update archive_collections set ",
@@ -1318,16 +1310,14 @@ store_collection(C) ->
 %%
 %% partial collection update, useful for quick update when autosaving
 %%
-update_collection_partial(CID, LServer, Thread, Subject, NewRes, LJID, TS) ->
+update_collection_partial(CID, LServer, Thread, NewRes, LJID, TS) ->
     SResource = escape(NewRes),
     SByJID = get_jid_full_escaped(LJID),
     SCHUTC = encode_timestamp(TS),
-    SSubject = escape_str(LServer, Subject),
     SThread = escape_str(LServer, Thread),
     CollVals = ["with_resource = ", SResource, ", "
                 "change_by = ", SByJID, ", "
                 "change_utc = ", SCHUTC, ", "
-                "subject = ", SSubject, ", "
                 "thread = ", SThread],
     run_sql_query(["update archive_collections set ",
                    CollVals, " where id = ",
@@ -1381,7 +1371,7 @@ store_messages(LServer, CID, Msgs) ->
     end.
 
 get_store_msg_header() ->
-    "insert into archive_messages(coll_id, utc, dir, name, body) values".
+    "insert into archive_messages(coll_id, utc, dir, name, subject, body) values".
 
 get_message_values_stmt(LServer, Msg) ->
     SDirection = escape(case Msg#archive_message.direction of
@@ -1390,11 +1380,13 @@ get_message_values_stmt(LServer, Msg) ->
                             note -> 2
                         end),
     SName = escape_str(LServer, Msg#archive_message.name),
+    SSubject = escape_str(LServer, Msg#archive_message.subject),
     SBody = escape_str(LServer, Msg#archive_message.body),
     ["(", escape(Msg#archive_message.coll_id), ", ",
      encode_timestamp(Msg#archive_message.utc), ", ",
      SDirection, ", ",
      SName, ", ",
+     SSubject, ", ",
      SBody, ")"].
 
 %% store global prefs, either creating them or updating existing ones.
@@ -1766,7 +1758,7 @@ get_collection_by_id(CID) ->
     get_collection_from_query_result(C).
 
 get_collection_from_query_result({CID, PrevId, NextId, US, User, Server, Resource, UTC,
-                                  ChBy, ChUTC, Deleted, Subject, Thread, Crypt, Extra}) ->
+                                  ChBy, ChUTC, Deleted, Thread, Crypt, Extra}) ->
     #archive_collection{id = decode_integer(CID),
                         us = get_us_separated(US),
                         jid = jlib:jid_tolower(jlib:make_jid(User, Server, Resource)),
@@ -1785,10 +1777,6 @@ get_collection_from_query_result({CID, PrevId, NextId, US, User, Server, Resourc
                                       0 -> false;
                                       1 -> true;
                                       _ -> throw({error, ?ERR_INTERNAL_SERVER_ERROR})
-                                  end,
-                        subject = case Subject of
-                                      null -> undefined;
-                                      R -> R
                                   end,
                         thread = case Thread of
                                      null -> undefined;
@@ -1823,12 +1811,6 @@ collection_to_xml(C) ->
      lists:append([
 		   [{"with", jlib:jid_to_string(C#archive_collection.jid)}],
 		   [{"start", get_datetime_string_from_seconds(C#archive_collection.utc)}],
-		   if C#archive_collection.subject /= "",
-		      C#archive_collection.subject /= undefined ->
-			   [{"subject", C#archive_collection.subject}];
-		      true ->
-			   []
-		   end,
 		   if C#archive_collection.thread /= "",
 		      C#archive_collection.thread /= undefined ->
 			   [{"thread", C#archive_collection.thread}];
